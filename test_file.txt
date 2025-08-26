@@ -1,0 +1,1 @@
+This is a test file with some complaints data. Complaint 001 for Israel, Complaint 002 for Germany, Complaint 003 for Israel.
