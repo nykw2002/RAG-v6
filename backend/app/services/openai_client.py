@@ -237,8 +237,8 @@ class OpenAIClient:
             access_token = self.auth.get_access_token()
             
             # Build Azure OpenAI embeddings endpoint URL
-            embeddings_deployment = os.getenv('EMBEDDINGS_DEPLOYMENT_NAME', 'text-embedding-ada-002')
-            url = f"{self.endpoint}/openai/deployments/{embeddings_deployment}/embeddings?api-version={self.api_version}"
+            # Note: For Azure OpenAI embeddings, use the standard model endpoint
+            url = f"{self.endpoint}/openai/embeddings?api-version={self.api_version}"
             
             headers = {
                 'Content-Type': 'application/json',
@@ -246,7 +246,8 @@ class OpenAIClient:
             }
             
             payload = {
-                'input': input_texts
+                'input': input_texts,
+                'model': 'text-embedding-ada-002'
             }
             
             response = requests.post(url, headers=headers, json=payload, timeout=60)

@@ -66,7 +66,7 @@ class Settings(BaseSettings):
     CHAT_MODEL_DEPLOYMENT_NAME: str = os.getenv("CHAT_MODEL_DEPLOYMENT_NAME", "")
     GPT_O3_MINI_DEPLOYMENT_NAME: str = os.getenv("GPT_O3_MINI_DEPLOYMENT_NAME", "")
     USE_O3_MINI: bool = os.getenv("USE_O3_MINI", "false").lower() == "true"
-    EMBEDDINGS_DEPLOYMENT_NAME: str = os.getenv("EMBEDDINGS_DEPLOYMENT_NAME", "text-embedding-ada-002")
+# Embeddings use standard model names, not deployment names
     
     # Legacy OpenAI Configuration (Backup)
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
