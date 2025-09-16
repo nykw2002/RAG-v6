@@ -9,6 +9,7 @@ from app.core.database import Base
 class MethodEnum(str, enum.Enum):
     reasoning = "reasoning"
     extraction = "extraction"
+    direct = "direct"
 
 
 class StatusEnum(str, enum.Enum):
@@ -23,7 +24,7 @@ class DynamicElement(Base):
     name = Column(String(255), nullable=False)
     prompt = Column(Text, nullable=False)
     ai_model = Column(String(100), nullable=False)
-    method = Column(Enum(MethodEnum), nullable=False)
+    method = Column(Enum(MethodEnum), nullable=True)
     file_type = Column(String(50), nullable=False)
     data_sources = Column(Text, nullable=False)  # JSON string of array
     status = Column(Enum(StatusEnum), default=StatusEnum.draft, nullable=False)

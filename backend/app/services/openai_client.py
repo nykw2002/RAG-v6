@@ -15,6 +15,7 @@ from typing import List, Dict, Any, Optional
 from pathlib import Path
 from dotenv import load_dotenv
 from sklearn.metrics.pairwise import cosine_similarity
+from .embeddings_cache import EmbeddingsCache
 
 # Configure logging to use uvicorn logger
 import uvicorn
@@ -102,7 +103,10 @@ class OpenAIClient:
                 self.api_version = os.getenv('AOAI_API_VERSION')
                 self.chat_deployment = os.getenv('CHAT_MODEL_DEPLOYMENT_NAME')
                 self.o3_mini_deployment = os.getenv('GPT_O3_MINI_DEPLOYMENT_NAME')
+                self.gpt5_deployment = os.getenv('GPT_5_DEPLOYMENT_NAME')
+                self.embeddings_deployment = os.getenv('EMBEDDING_MODEL_DEPLOYMENT_NAME')
                 self.use_o3_mini = os.getenv('USE_O3_MINI', 'false').lower() == 'true'
+                self.use_gpt5 = os.getenv('USE_GPT_5', 'false').lower() == 'true'
                 
                 # Choose deployment (GPT-4o vs O3-mini)
                 if self.use_o3_mini and self.o3_mini_deployment:
@@ -130,22 +134,40 @@ class OpenAIClient:
             self.model = "gpt-4o"
             logger.info(f"[OK] Using standard OpenAI GPT-4o model")
     
-    def chat_completions_create(self, messages: List[Dict], temperature: float = 0.3, max_tokens: int = 4000) -> Dict[str, Any]:
+    def chat_completions_create(self, messages: List[Dict], temperature: float = 0.3, max_tokens: int = 4000, model: str = None) -> Dict[str, Any]:
         """Create chat completion using Azure OpenAI or standard OpenAI (fallback)"""
-        
+
         if self.use_azure:
-            return self._azure_chat_completion(messages, temperature, max_tokens)
+            return self._azure_chat_completion(messages, temperature, max_tokens, model)
         else:
-            return self._standard_chat_completion(messages, temperature, max_tokens)
+            return self._standard_chat_completion(messages, temperature, max_tokens, model)
     
-    def _azure_chat_completion(self, messages: List[Dict], temperature: float, max_tokens: int) -> Dict[str, Any]:
+    def _get_deployment_for_model(self, model: str = None) -> str:
+        """Get the appropriate deployment name for the requested model"""
+        if model == "gpt-5" and self.gpt5_deployment:
+            return self.gpt5_deployment
+        elif model == "o3-mini" and self.o3_mini_deployment:
+            return self.o3_mini_deployment
+        else:
+            # Default to configured deployment
+            if self.use_o3_mini and self.o3_mini_deployment:
+                return self.o3_mini_deployment
+            else:
+                return self.chat_deployment
+
+    def _azure_chat_completion(self, messages: List[Dict], temperature: float, max_tokens: int, model: str = None) -> Dict[str, Any]:
         """Create chat completion using Azure OpenAI API"""
         try:
             # Get OAuth2 access token
             access_token = self.auth.get_access_token()
-            
+
+            # Get appropriate deployment for the requested model
+            deployment = self._get_deployment_for_model(model)
+
             # Build Azure OpenAI endpoint URL
-            url = f"{self.endpoint}/openai/deployments/{self.current_deployment}/chat/completions?api-version={self.api_version}"
+            url = f"{self.endpoint}/openai/deployments/{deployment}/chat/completions?api-version={self.api_version}"
+
+            logger.info(f"Using Azure deployment: {deployment} for model: {model or 'default'}")
             
             # Prepare headers with Bearer token
             headers = {
@@ -156,9 +178,12 @@ class OpenAIClient:
             # Prepare Azure OpenAI Chat Completions payload
             payload = {
                 'messages': messages,
-                'max_completion_tokens': max_tokens,  # Azure uses max_completion_tokens
-                'temperature': temperature
+                'max_completion_tokens': max_tokens  # Azure uses max_completion_tokens
             }
+            
+            # Only add temperature if not using O3-mini or GPT-5 (they don't support temperature)
+            if model not in ["o3-mini", "gpt-5"] and self.model != "o3-mini":
+                payload['temperature'] = temperature
             
             # Make HTTP POST request with retry logic
             max_retries = 3
@@ -208,11 +233,14 @@ class OpenAIClient:
             logger.error(f"Error in Azure chat completion: {e}")
             raise
     
-    def _standard_chat_completion(self, messages: List[Dict], temperature: float, max_tokens: int) -> Dict[str, Any]:
+    def _standard_chat_completion(self, messages: List[Dict], temperature: float, max_tokens: int, model: str = None) -> Dict[str, Any]:
         """Create chat completion using standard OpenAI API"""
         try:
+            # Use specified model or fallback to default
+            used_model = model if model in ["gpt-4", "gpt-4o", "gpt-3.5-turbo"] else self.model
+
             response = self.client.chat.completions.create(
-                model=self.model,
+                model=used_model,
                 messages=messages,
                 temperature=temperature,
                 max_tokens=max_tokens
@@ -237,8 +265,7 @@ class OpenAIClient:
             access_token = self.auth.get_access_token()
             
             # Build Azure OpenAI embeddings endpoint URL
-            # Note: For Azure OpenAI embeddings, use the standard model endpoint
-            url = f"{self.endpoint}/openai/embeddings?api-version={self.api_version}"
+            url = f"{self.endpoint}/openai/deployments/{self.embeddings_deployment}/embeddings?api-version={self.api_version}"
             
             headers = {
                 'Content-Type': 'application/json',
@@ -247,7 +274,7 @@ class OpenAIClient:
             
             payload = {
                 'input': input_texts,
-                'model': 'text-embedding-ada-002'
+                'model': self.embeddings_deployment  # Use deployment name for Azure
             }
             
             response = requests.post(url, headers=headers, json=payload, timeout=60)
@@ -280,6 +307,7 @@ class AIAnalysisEngine:
     
     def __init__(self):
         self.client = OpenAIClient()
+        self.embeddings_cache = EmbeddingsCache()
         self.temp_dir = Path("temp_analysis")
         self.temp_dir.mkdir(exist_ok=True)
     
@@ -329,7 +357,8 @@ class AIAnalysisEngine:
             response = self.client.chat_completions_create(
                 messages=messages,
                 temperature=0.1,
-                max_tokens=2000
+                max_tokens=2000,
+                model="gpt-4o"  # Default for script generation
             )
             
             return response.choices[0].message.content
@@ -394,7 +423,7 @@ class AIAnalysisEngine:
                 "stderr": str(e)
             }
     
-    def process_with_extraction(self, prompt: str, file_content: str, filename: str = "uploaded_file") -> str:
+    def process_with_extraction(self, prompt: str, file_content: str, filename: str = "uploaded_file", model: str = "gpt-4o") -> str:
         """Process using extraction method (script generation)"""
         try:
             max_iterations = 3
@@ -439,7 +468,7 @@ class AIAnalysisEngine:
                     ]
                     
                     try:
-                        response = self.client.chat_completions_create(messages=messages, max_tokens=2000)
+                        response = self.client.chat_completions_create(messages=messages, max_tokens=2000, model=model)
                         script_code = response.choices[0].message.content
                     except Exception as e:
                         logger.error(f"Error refining script: {e}")
@@ -502,27 +531,45 @@ class AIAnalysisEngine:
             logger.error(f"Error finding similar chunks: {e}")
             return chunks[:top_k]  # Fallback to first chunks
     
-    def process_with_rag(self, prompt: str, file_content: str, filename: str = "uploaded_file") -> str:
+    def process_with_rag(self, prompt: str, file_content: str, filename: str = "uploaded_file", model: str = "gpt-4o") -> str:
         """Process using RAG method (reasoning with embeddings)"""
         try:
-            # Chunk the document
-            chunks = self.chunk_document(file_content, chunk_size=1000)
-            logger.info(f"Created {len(chunks)} chunks for RAG processing")
-            
-            if not chunks:
-                return "No content available for analysis."
-            
-            # Create embeddings for chunks
-            try:
-                chunk_embeddings = self.client.embeddings_create(chunks)
-                query_embedding = self.client.embeddings_create([prompt])[0]
-            except Exception as e:
-                logger.warning(f"Embeddings failed, using first chunks: {e}")
-                # Fallback: use first few chunks if embeddings fail
-                relevant_chunks = chunks[:5]
+            # Check cache first
+            cached_data = self.embeddings_cache.get_cached_embeddings(file_content, chunk_size=1000)
+
+            if cached_data:
+                chunks = cached_data['chunks']
+                chunk_embeddings = cached_data['embeddings']
+                logger.info(f"Using cached embeddings ({len(chunks)} chunks)")
             else:
-                # Find relevant chunks
-                relevant_chunks = self.find_similar_chunks(query_embedding, chunk_embeddings, chunks)
+                # Chunk the document
+                chunks = self.chunk_document(file_content, chunk_size=1000)
+                logger.info(f"Created {len(chunks)} chunks for RAG processing")
+
+                if not chunks:
+                    return "No content available for analysis."
+
+                # Create embeddings for chunks
+                try:
+                    chunk_embeddings = self.client.embeddings_create(chunks)
+                    # Cache for future use
+                    self.embeddings_cache.cache_embeddings(file_content, chunks, chunk_embeddings, chunk_size=1000)
+                except Exception as e:
+                    logger.warning(f"Embeddings failed, using first chunks: {e}")
+                    # Fallback: use first few chunks if embeddings fail
+                    relevant_chunks = chunks[:5]
+                    chunk_embeddings = None
+
+            # Find relevant chunks using embeddings
+            if chunk_embeddings:
+                try:
+                    query_embedding = self.client.embeddings_create([prompt])[0]
+                    relevant_chunks = self.find_similar_chunks(query_embedding, chunk_embeddings, chunks)
+                except Exception as e:
+                    logger.warning(f"Query embedding failed, using first chunks: {e}")
+                    relevant_chunks = chunks[:5]
+            else:
+                relevant_chunks = chunks[:5]
             
             if not relevant_chunks:
                 relevant_chunks = chunks[:3]  # Fallback
@@ -550,7 +597,8 @@ class AIAnalysisEngine:
             response = self.client.chat_completions_create(
                 messages=messages,
                 temperature=0.3,
-                max_tokens=2000
+                max_tokens=2000,
+                model=model
             )
             
             return response.choices[0].message.content
@@ -559,13 +607,48 @@ class AIAnalysisEngine:
             logger.error(f"Error in RAG processing: {e}")
             return f"Error in analysis: {str(e)}"
     
-    def analyze(self, prompt: str, method: str, file_content: str, filename: str = "uploaded_file") -> str:
-        """Main analysis method - routes to extraction or reasoning"""
+    def process_with_direct(self, prompt: str, file_content: str, filename: str = "uploaded_file", model: str = "gpt-5") -> str:
+        """Process using direct method (for GPT-5 - no method specification needed)"""
+        try:
+            # Build direct prompt for GPT-5
+            direct_prompt = f"""
+            Based on the following content, please answer the user's question thoroughly and accurately:
+
+            CONTENT:
+            {file_content[:8000]}  # Limit content to manage token usage
+
+            USER QUESTION: {prompt}
+
+            Please provide a comprehensive analysis based on the content above.
+            """
+
+            messages = [
+                {"role": "system", "content": "You are an expert analyst. Provide detailed, accurate responses based on the provided content."},
+                {"role": "user", "content": direct_prompt}
+            ]
+
+            response = self.client.chat_completions_create(
+                messages=messages,
+                temperature=0.3,
+                max_tokens=4000,
+                model=model
+            )
+
+            return response.choices[0].message.content
+
+        except Exception as e:
+            logger.error(f"Error in direct processing: {e}")
+            return f"Error in analysis: {str(e)}"
+
+    def analyze(self, prompt: str, method: str, file_content: str, filename: str = "uploaded_file", model: str = "gpt-4o") -> str:
+        """Main analysis method - routes to extraction, reasoning, or direct"""
         try:
             if method == "extraction":
-                return self.process_with_extraction(prompt, file_content, filename)
+                return self.process_with_extraction(prompt, file_content, filename, model)
             elif method == "reasoning":
-                return self.process_with_rag(prompt, file_content, filename)
+                return self.process_with_rag(prompt, file_content, filename, model)
+            elif method == "direct":
+                return self.process_with_direct(prompt, file_content, filename, model)
             else:
                 raise ValueError(f"Unknown analysis method: {method}")
                 

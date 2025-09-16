@@ -7,6 +7,7 @@ from enum import Enum
 class MethodEnum(str, Enum):
     reasoning = "reasoning"
     extraction = "extraction"
+    direct = "direct"
 
 
 class StatusEnum(str, Enum):
@@ -18,7 +19,7 @@ class DynamicElementBase(BaseModel):
     name: str
     prompt: str
     ai_model: str
-    method: MethodEnum
+    method: Optional[MethodEnum] = None
     file_type: str
     data_sources: List[str]
 

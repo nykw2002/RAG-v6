@@ -150,12 +150,13 @@ def analyze_element(
         if additional_data.strip():
             combined_content += f"\n\n--- ADDITIONAL DATA ---\n\n{additional_data}"
         
-        # Run AI analysis
+        # Run AI analysis with the selected model
         analysis_result = ai_engine.analyze(
             prompt=element.prompt,
             method=element.method,
             file_content=combined_content,
-            filename=", ".join(file_names) if file_names else "uploaded_files"
+            filename=", ".join(file_names) if file_names else "uploaded_files",
+            model=element.ai_model  # Use the model selected in the configuration
         )
         
         return {

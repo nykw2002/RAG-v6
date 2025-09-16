@@ -62,7 +62,8 @@ export function ConfigurationModal({ isOpen, onClose, editElement }: Configurati
   }
 
   const handleSave = async () => {
-    if (!method) return
+    // For GPT-5, method is not required
+    if (aiModel !== "gpt-5" && !method) return
     if (!editElement && !elementName.trim()) return
 
     setSaving(true)
@@ -72,7 +73,7 @@ export function ConfigurationModal({ isOpen, onClose, editElement }: Configurati
           name: editElement.name,
           prompt,
           aiModel,
-          method,
+          method: aiModel === "gpt-5" ? "direct" : method,
           fileType,
           dataSources: selectedButtons,
         })
@@ -82,7 +83,7 @@ export function ConfigurationModal({ isOpen, onClose, editElement }: Configurati
           name: elementName,
           prompt,
           aiModel,
-          method,
+          method: aiModel === "gpt-5" ? "direct" : method,
           fileType,
           dataSources: selectedButtons,
         })
@@ -98,9 +99,8 @@ export function ConfigurationModal({ isOpen, onClose, editElement }: Configurati
   }
 
   const generatePreviewJSON = () => {
-    return {
+    const jsonStructure: any = {
       user_prompt: prompt,
-      method: method,
       model: aiModel,
       data_type: selectedButtons.join("/") || "Not specified",
       data: [],
@@ -112,6 +112,13 @@ export function ConfigurationModal({ isOpen, onClose, editElement }: Configurati
         },
       ],
     }
+
+    // Only include method for non-GPT-5 models
+    if (aiModel !== "gpt-5") {
+      jsonStructure.method = method;
+    }
+
+    return jsonStructure;
   }
 
   const handleClose = () => {
@@ -172,6 +179,8 @@ export function ConfigurationModal({ isOpen, onClose, editElement }: Configurati
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="gpt-4">GPT-4</SelectItem>
+                  <SelectItem value="gpt-4o">GPT-4o</SelectItem>
+                  <SelectItem value="gpt-5">GPT-5</SelectItem>
                   <SelectItem value="gpt-3.5-turbo">GPT-3.5 Turbo</SelectItem>
                   <SelectItem value="claude-3">Claude 3</SelectItem>
                   <SelectItem value="gemini-pro">Gemini Pro</SelectItem>
@@ -179,18 +188,20 @@ export function ConfigurationModal({ isOpen, onClose, editElement }: Configurati
               </Select>
             </div>
 
-            <div className="space-y-2">
-              <Label className="text-sm font-medium">Method</Label>
-              <Select value={method} onValueChange={(value: "reasoning" | "extraction") => setMethod(value)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select method" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="reasoning">Reasoning</SelectItem>
-                  <SelectItem value="extraction">Extraction</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            {aiModel !== "gpt-5" && (
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Method</Label>
+                <Select value={method} onValueChange={(value: "reasoning" | "extraction") => setMethod(value)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select method" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="reasoning">Reasoning</SelectItem>
+                    <SelectItem value="extraction">Extraction</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label className="text-sm font-medium">File Type</Label>

@@ -3,7 +3,7 @@ export interface DynamicElement {
   name: string
   prompt: string
   aiModel: string
-  method: "reasoning" | "extraction"
+  method: "reasoning" | "extraction" | "direct"
   fileType: string
   dataSources: string[]
   status: "draft" | "validated"
@@ -17,7 +17,7 @@ export interface DynamicElementInput {
   name: string
   prompt: string
   aiModel: string
-  method: "reasoning" | "extraction"
+  method: "reasoning" | "extraction" | "direct"
   fileType: string
   dataSources: string[]
 }
